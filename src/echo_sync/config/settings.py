@@ -44,6 +44,9 @@ class Settings(BaseSettings):
     # ── Timeouts and Thresholds ─────────────────────────────────────
     silence_timeout: int = 10
     confidence_threshold: float = 0.6
+    
+    # ── Wake Word ───────────────────────────────────────────────────
+    wake_word: str = "echo"
 
     # ── Paths ───────────────────────────────────────────────────────
     music_dir: str = "assets/music"

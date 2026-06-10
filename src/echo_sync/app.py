@@ -51,6 +51,7 @@ class EchoSyncApp:
         self.demo_keyboard = demo_keyboard
         self.state_machine = StateMachine()
         self.running = False
+        self.active_session = False
 
         # ── Initialize components ───────────────────────────────────
         console.print("[dim]Initializing Echo-Sync...[/dim]")
@@ -161,16 +162,78 @@ class EchoSyncApp:
             return
 
         # ── Step 2: Handle empty input (silence) ───────────────────
+        wake_word = self.settings.wake_word.lower()
         if not transcript.strip():
-            self.state_machine.transition(AppState.HELPING)
-            response = self.dialog_manager.handle_silence()
-            self._respond(response)
-            self.interaction_logger.log_interaction(
-                transcript="[silence]",
-                system_response=response,
-                notes="silence_timeout",
-            )
-            return
+            if wake_word and not self.active_session:
+                # In wake word mode, passive silence is just ignored
+                if hasattr(self.player, "is_playing") and self.player.is_playing():
+                    self.state_machine.force_state(AppState.PLAYING)
+                else:
+                    self.state_machine.force_state(AppState.IDLE)
+                return
+            else:
+                self.state_machine.transition(AppState.HELPING)
+                response = self.dialog_manager.handle_silence()
+                self._respond(response)
+                self.interaction_logger.log_interaction(
+                    transcript="[silence]",
+                    system_response=response,
+                    notes="silence_timeout",
+                )
+                return
+
+        # ── Step 2.5: Wake word check ───────────────────────────────
+        if wake_word and not self.active_session:
+            transcript_lower = transcript.lower()
+            
+            # Common STT misspellings for "echo"
+            valid_wake_words = [wake_word]
+            if wake_word == "echo":
+                valid_wake_words.extend(["eko", "ecco", "eco", "ekko", "acou"])
+                
+            if not any(w in transcript_lower for w in valid_wake_words):
+                logger.info("Ignored background speech (wake word not detected): '%s'", transcript)
+                
+                # Return to previous state without ducking or processing
+                if hasattr(self.player, "is_playing") and self.player.is_playing():
+                    self.state_machine.force_state(AppState.PLAYING)
+                else:
+                    self.state_machine.force_state(AppState.IDLE)
+                return
+
+            # They said the wake word! Start an active session.
+            self.active_session = True
+
+            # Check if they only said the wake word
+            import string
+            cleaned_cmd = transcript_lower
+            for w in valid_wake_words:
+                cleaned_cmd = cleaned_cmd.replace(w, "")
+            for p in string.punctuation:
+                cleaned_cmd = cleaned_cmd.replace(p, "")
+                
+            if not cleaned_cmd.strip():
+                # User paused after saying the wake word
+                self.ducker.duck()
+                self._respond("Yes? I'm listening...")
+                
+                # Get the actual command
+                if self.demo_keyboard:
+                    transcript = self._get_keyboard_input()
+                else:
+                    transcript = self._get_voice_input(play_earcon=True)
+                    
+                self.ducker.unduck()
+                
+                if transcript is None:
+                    self.running = False
+                    return
+                if not transcript.strip():
+                    # If silence, handle it normally since we are in an active session
+                    self.state_machine.transition(AppState.HELPING)
+                    response = self.dialog_manager.handle_silence()
+                    self._respond(response)
+                    return
 
         # ── Step 3: Classify intent ─────────────────────────────────
         self.state_machine.transition(AppState.PROCESSING)
@@ -201,6 +264,13 @@ class EchoSyncApp:
             self.state_machine.force_state(AppState.PLAYING)
         else:
             self.state_machine.force_state(AppState.IDLE)
+            
+        # If music is now playing, end the active session so the wake word is required again
+        if hasattr(self.player, "is_playing") and self.player.is_playing():
+            self.active_session = False
+        else:
+            # If paused/stopped, remain in active session (wake word not required)
+            self.active_session = True
 
     def _get_keyboard_input(self) -> str | None:
         """Get input from keyboard (demo mode)."""
@@ -218,12 +288,14 @@ class EchoSyncApp:
         except EOFError:
             return None
 
-    def _get_voice_input(self) -> str | None:
+    def _get_voice_input(self, play_earcon: bool = False) -> str | None:
         """Get input from microphone."""
         if self.recorder is None:
             return self._get_keyboard_input()
 
-        self.earcons.play_listening()
+        if play_earcon:
+            self.earcons.play_listening()
+            
         console.print("[dim]🎤 Listening...[/dim]")
 
         audio_path = self.recorder.record()

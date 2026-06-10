@@ -87,6 +87,11 @@ class SmartDucker:
             except Exception as e:
                 logger.error("Failed to duck volume: %s", e)
 
+    def update_target_volume(self, target_volume: int) -> None:
+        """Update the volume that will be restored when unducking."""
+        with self._lock:
+            self._original_volume = target_volume
+
     def unduck(self) -> None:
         """
         Restore music volume with a smooth fade.

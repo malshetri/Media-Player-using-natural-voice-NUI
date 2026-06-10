@@ -146,11 +146,15 @@ class DialogManager:
 
             elif action == "volume_up":
                 new_vol = self.player.volume_up()
+                if hasattr(self.ducker, "update_target_volume"):
+                    self.ducker.update_target_volume(new_vol)
                 response = get_volume_response("volume_up", new_vol)
                 self.earcons.play(EARCON_SUCCESS)
 
             elif action == "volume_down":
                 new_vol = self.player.volume_down()
+                if hasattr(self.ducker, "update_target_volume"):
+                    self.ducker.update_target_volume(new_vol)
                 response = get_volume_response("volume_down", new_vol)
                 self.earcons.play(EARCON_SUCCESS)
 
