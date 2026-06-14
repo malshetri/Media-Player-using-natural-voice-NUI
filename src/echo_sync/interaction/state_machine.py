@@ -2,7 +2,7 @@
 Echo-Sync state machine.
 
 Tracks the application state for the interaction flow.
-States: idle, listening, processing, playing, ducking, helping.
+States: SLEEPING, AWAKE_WAITING_COMMAND, AWAKE_CLARIFYING, PLAYING_PASSIVE
 """
 
 import logging
@@ -15,58 +15,39 @@ logger = logging.getLogger(__name__)
 class AppState(Enum):
     """Application states for the Echo-Sync interaction loop."""
 
-    IDLE = auto()           # System is waiting, not actively listening
-    LISTENING = auto()      # Microphone is recording user speech
-    PROCESSING = auto()     # Transcribing and classifying intent
-    EXECUTING = auto()      # Executing the classified action
-    PLAYING = auto()        # Music is playing, system is passive
-    DUCKING = auto()        # Music volume reduced for speech
-    HELPING = auto()        # System is providing guided help
-    ERROR = auto()          # An error occurred
-    SHUTTING_DOWN = auto()  # System is shutting down
+    SLEEPING = auto()               # System is waiting only for the wake word
+    AWAKE_WAITING_COMMAND = auto()  # Woken up, waiting for a command
+    AWAKE_CLARIFYING = auto()       # Didn't understand, keeping awake to help
+    PLAYING_PASSIVE = auto()        # Music playing, ignoring everything except wake word
+    SHUTTING_DOWN = auto()          # System is shutting down
 
 
 # ── Valid state transitions ─────────────────────────────────────────────────
 VALID_TRANSITIONS: dict[AppState, set[AppState]] = {
-    AppState.IDLE: {AppState.LISTENING, AppState.SHUTTING_DOWN},
-    AppState.LISTENING: {
-        AppState.PROCESSING,
-        AppState.HELPING,      # Silence timeout
-        AppState.ERROR,
+    AppState.SLEEPING: {
+        AppState.SLEEPING,
+        AppState.AWAKE_WAITING_COMMAND,
+        AppState.PLAYING_PASSIVE,
         AppState.SHUTTING_DOWN,
     },
-    AppState.PROCESSING: {
-        AppState.EXECUTING,
-        AppState.HELPING,
-        AppState.ERROR,
+    AppState.AWAKE_WAITING_COMMAND: {
+        AppState.AWAKE_WAITING_COMMAND,
+        AppState.SLEEPING,
+        AppState.PLAYING_PASSIVE,
+        AppState.AWAKE_CLARIFYING,
         AppState.SHUTTING_DOWN,
     },
-    AppState.EXECUTING: {
-        AppState.PLAYING,
-        AppState.IDLE,
-        AppState.HELPING,
-        AppState.ERROR,
+    AppState.AWAKE_CLARIFYING: {
+        AppState.AWAKE_CLARIFYING,
+        AppState.SLEEPING,
+        AppState.PLAYING_PASSIVE,
+        AppState.AWAKE_WAITING_COMMAND,
         AppState.SHUTTING_DOWN,
     },
-    AppState.PLAYING: {
-        AppState.LISTENING,
-        AppState.DUCKING,
-        AppState.IDLE,
-        AppState.SHUTTING_DOWN,
-    },
-    AppState.DUCKING: {
-        AppState.LISTENING,
-        AppState.PLAYING,
-        AppState.SHUTTING_DOWN,
-    },
-    AppState.HELPING: {
-        AppState.LISTENING,
-        AppState.IDLE,
-        AppState.SHUTTING_DOWN,
-    },
-    AppState.ERROR: {
-        AppState.LISTENING,
-        AppState.IDLE,
+    AppState.PLAYING_PASSIVE: {
+        AppState.PLAYING_PASSIVE,
+        AppState.AWAKE_WAITING_COMMAND,
+        AppState.SLEEPING,
         AppState.SHUTTING_DOWN,
     },
     AppState.SHUTTING_DOWN: set(),  # Terminal state
@@ -80,7 +61,7 @@ class StateMachine:
     Enforces valid state transitions and provides logging.
     """
 
-    def __init__(self, initial_state: AppState = AppState.IDLE) -> None:
+    def __init__(self, initial_state: AppState = AppState.SLEEPING) -> None:
         self._state = initial_state
         self._previous_state: Optional[AppState] = None
         logger.info("State machine initialized: %s", self._state.name)
@@ -138,6 +119,30 @@ class StateMachine:
         """Check if the system is in an active (non-terminal) state."""
         return self._state != AppState.SHUTTING_DOWN
 
-    def is_playing(self) -> bool:
-        """Check if the system is in a playing state."""
-        return self._state in {AppState.PLAYING, AppState.DUCKING}
+    # ── State Checks ────────────────────────────────────────────────────────
+    
+    def is_awake(self) -> bool:
+        """Check if the system is actively waiting for a command or clarifying."""
+        return self._state in {AppState.AWAKE_WAITING_COMMAND, AppState.AWAKE_CLARIFYING}
+
+    def is_passive(self) -> bool:
+        """Check if the system is passively playing music or sleeping."""
+        return self._state in {AppState.SLEEPING, AppState.PLAYING_PASSIVE}
+
+    # ── State Changers ──────────────────────────────────────────────────────
+    
+    def wake(self) -> None:
+        """Wake up the system to wait for a command."""
+        self.transition(AppState.AWAKE_WAITING_COMMAND)
+
+    def sleep(self) -> None:
+        """Put the system to sleep, waiting for the wake word."""
+        self.transition(AppState.SLEEPING)
+
+    def start_clarifying(self) -> None:
+        """Move to clarifying state, keeping the system awake."""
+        self.transition(AppState.AWAKE_CLARIFYING)
+
+    def start_playing_passive(self) -> None:
+        """Move to passive playing state."""
+        self.transition(AppState.PLAYING_PASSIVE)

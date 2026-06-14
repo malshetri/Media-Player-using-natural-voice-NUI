@@ -4,8 +4,8 @@
 
 ### Session 1: Basic Command Flow
 
-**Date:** [Fill in date]  
-**Participants:** [Fill in names]  
+**Date:** To be filled after user test session  
+**Participants:** To be filled after user test session  
 **Scenario:** Blind user wants to play and control music
 
 **Setup:**
@@ -21,20 +21,20 @@
 5. User attempts to skip to next song
 
 **What worked:**
-- [Document findings after testing]
+- To be filled after user test session
 
 **What confused users:**
-- [Document findings after testing]
+- To be filled after user test session
 
 **Changes made after:**
-- [Document what was changed]
+- To be filled after user test session
 
 ---
 
 ### Session 2: Mood-Based Request
 
-**Date:** [Fill in date]  
-**Participants:** [Fill in names]  
+**Date:** To be filled after user test session  
+**Participants:** To be filled after user test session  
 **Scenario:** User expresses mood and expects appropriate music
 
 **Setup:**
@@ -48,20 +48,20 @@
 4. System responds and switches to energetic music
 
 **What worked:**
-- [Document findings after testing]
+- To be filled after user test session
 
 **What confused users:**
-- [Document findings after testing]
+- To be filled after user test session
 
 **Changes made after:**
-- [Document what was changed]
+- To be filled after user test session
 
 ---
 
 ### Session 3: Error Handling and Off-Topic
 
-**Date:** [Fill in date]  
-**Participants:** [Fill in names]  
+**Date:** To be filled after user test session  
+**Participants:** To be filled after user test session  
 **Scenario:** User asks off-topic questions and experiences errors
 
 **Setup:**
@@ -77,13 +77,13 @@
 6. System asks for clarification
 
 **What worked:**
-- [Document findings after testing]
+- To be filled after user test session
 
 **What confused users:**
-- [Document findings after testing]
+- To be filled after user test session
 
 **Changes made after:**
-- [Document what was changed]
+- To be filled after user test session
 
 ---
 
@@ -91,12 +91,12 @@
 
 | Finding | Impact | Action Taken |
 |---|---|---|
-| [Finding 1] | [High/Medium/Low] | [What was changed] |
-| [Finding 2] | [High/Medium/Low] | [What was changed] |
-| [Finding 3] | [High/Medium/Low] | [What was changed] |
+| To be filled after user test session | High/Medium/Low | What was changed |
+| To be filled after user test session | High/Medium/Low | What was changed |
+| To be filled after user test session | High/Medium/Low | What was changed |
 
 ## Photos / Evidence
 
-[Add photos of bodystorming sessions here]
+To be filled after user test session — add photos of bodystorming sessions here.
 
 > **Note:** Fill in the actual testing data after conducting the sessions. This template provides the structure required for the documentation.

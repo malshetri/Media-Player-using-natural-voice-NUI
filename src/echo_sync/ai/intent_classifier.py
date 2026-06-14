@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 DIRECT_COMMAND_PATTERNS: list[tuple[re.Pattern, str, str]] = [
     # (compiled regex, action, user_feedback)
     (re.compile(r"^pause$", re.IGNORECASE), "pause", "Music paused."),
-    (re.compile(r"^stop$", re.IGNORECASE), "stop", "Music stopped."),
+    (re.compile(r"^stop(\s+music)?$", re.IGNORECASE), "stop", "Music stopped."),
     (re.compile(r"^(resume|continue|unpause)$", re.IGNORECASE), "resume", "Resuming music."),
     (re.compile(r"^next(\s+song)?$", re.IGNORECASE), "next", "Playing next song."),
     (re.compile(r"^(previous|prev)(\s+song)?$", re.IGNORECASE), "previous", "Playing previous song."),
@@ -36,9 +36,116 @@ DIRECT_COMMAND_PATTERNS: list[tuple[re.Pattern, str, str]] = [
     (re.compile(r"^play$", re.IGNORECASE), "play", "Playing music."),
 ]
 
-HELP_PATTERNS: list[tuple[re.Pattern, str]] = [
-    (re.compile(r"^(help|help\s+me|what\s+can\s+i\s+say\??)$", re.IGNORECASE), "help"),
+HELP_PATTERNS: list[re.Pattern] = [
+    re.compile(r"^(help|help\s+me|what\s+can\s+i\s+(say|do)\??)$", re.IGNORECASE),
+    re.compile(r"^i\s+don'?t\s+know\.?$", re.IGNORECASE),
+    re.compile(r"^what\s+(is|are)\s+this\??$", re.IGNORECASE),
+    re.compile(r"^what\s+should\s+i\s+(say|do)\??$", re.IGNORECASE),
+    # Catch greetings and wake word variations
+    re.compile(r"^(hi|hey|hello)?\s*(echo|eko|ecco|eco|ekko|acou|ico|iko)\.?$", re.IGNORECASE),
 ]
+
+# ── Playlist keyword → interpreted context mapping ─────────────────────────
+# Used for both "play <keyword> music" and "I am <keyword>" patterns.
+PLAYLIST_KEYWORD_MAP: dict[str, str] = {
+    # calm
+    "calm": "calm",
+    "relaxing": "calm",
+    "relaxed": "calm",
+    "chill": "calm",
+    "peaceful": "calm",
+    # energy
+    "energy": "energy",
+    "energetic": "energy",
+    "energizing": "energy",
+    "motivation": "energy",
+    "motivational": "energy",
+    "upbeat": "energy",
+    "pump": "energy",
+    # focus
+    "focus": "focus",
+    "focused": "focus",
+    "study": "focus",
+    "studying": "focus",
+    "concentrate": "focus",
+    "concentration": "focus",
+    "ambient": "focus",
+    # happy
+    "happy": "happy",
+    "cheerful": "happy",
+    "joyful": "happy",
+    "joy": "happy",
+    # sad
+    "sad": "sad",
+    "melancholic": "sad",
+    "melancholy": "sad",
+    "soothing": "sad",
+}
+
+# ── Context statement patterns ──────────────────────────────────────────────
+# Maps the *remainder* after prefix stripping to an interpreted context.
+# e.g. "I am tired" → prefix "i am " → remainder "tired" → lookup "tired".
+# e.g. "I need energy" → prefix "i need " → remainder "energy" → lookup "energy".
+CONTEXT_STATEMENT_MAP: dict[str, str] = {
+    # calm
+    "tired": "calm",
+    "exhausted": "calm",
+    "sleepy": "calm",
+    "stressed": "calm",
+    "anxious": "calm",
+    "relaxed": "calm",
+    "relax": "calm",
+    # energy
+    "energy": "energy",
+    "energetic": "energy",
+    "energized": "energy",
+    "motivation": "energy",
+    "motivated": "energy",
+    "pumped": "energy",
+    "working out": "energy",
+    # focus
+    "focus": "focus",
+    "focused": "focus",
+    "study": "focus",
+    "studying": "focus",
+    "concentrate": "focus",
+    "concentrating": "focus",
+    # happy
+    "happy": "happy",
+    "excited": "happy",
+    "great": "happy",
+    "amazing": "happy",
+    "wonderful": "happy",
+    "joyful": "happy",
+    # sad
+    "sad": "sad",
+    "down": "sad",
+    "lonely": "sad",
+    "depressed": "sad",
+    "blue": "sad",
+    "heartbroken": "sad",
+}
+
+# ── Off-topic patterns ──────────────────────────────────────────────────────
+OFF_TOPIC_PATTERNS: list[re.Pattern] = [
+    re.compile(r"^what\s+(is|are)\s+(?!this\b).+", re.IGNORECASE),
+    re.compile(r"^who\s+(is|are|was)\s+.+", re.IGNORECASE),
+    re.compile(r"^(where|when|why|how)\s+(is|are|was|do|does|did|can|could)\s+.+", re.IGNORECASE),
+    re.compile(r"^tell\s+me\s+(about|a)\s+.+", re.IGNORECASE),
+    re.compile(r"^(calculate|compute|solve)\s+.+", re.IGNORECASE),
+    re.compile(r"^what.*weather.*$", re.IGNORECASE),
+    re.compile(r"^what.*time.*$", re.IGNORECASE),
+    re.compile(r"^what.*news.*$", re.IGNORECASE),
+]
+
+# Response templates for context-to-playlist results
+_CONTEXT_FEEDBACK: dict[str, str] = {
+    "calm": "I'll play something calm and relaxing for you.",
+    "energy": "Playing energetic music to boost your energy!",
+    "focus": "Playing ambient music to help you focus.",
+    "happy": "Playing some happy, cheerful music!",
+    "sad": "I'll play something soft and soothing for you.",
+}
 
 
 def try_rule_based(text: str) -> Optional[IntentResult]:
@@ -46,7 +153,8 @@ def try_rule_based(text: str) -> Optional[IntentResult]:
     Attempt to classify the input using simple rule-based patterns.
 
     Returns an IntentResult if matched, None if the AI should handle it.
-    This fast-path is used for common, unambiguous direct commands.
+    Checks in order: empty → direct commands → help → playlist commands
+    → context statements → off-topic → generic "play <X>" → None.
     """
     text = text.strip()
 
@@ -59,7 +167,7 @@ def try_rule_based(text: str) -> Optional[IntentResult]:
             user_feedback="I didn't catch that. You can say: play something calm, or ask for help.",
         )
 
-    # Check direct commands
+    # ── Direct commands (exact match) ───────────────────────────────
     for pattern, action, feedback in DIRECT_COMMAND_PATTERNS:
         if pattern.match(text):
             return IntentResult(
@@ -70,8 +178,8 @@ def try_rule_based(text: str) -> Optional[IntentResult]:
                 user_feedback=feedback,
             )
 
-    # Check help requests
-    for pattern, action in HELP_PATTERNS:
+    # ── Help requests ───────────────────────────────────────────────
+    for pattern in HELP_PATTERNS:
         if pattern.match(text):
             return IntentResult(
                 intent_type="help_request",
@@ -84,17 +192,68 @@ def try_rule_based(text: str) -> Optional[IntentResult]:
                 ),
             )
 
-    # Check for "play <something>" pattern
+    # ── "play <keyword> music" → playlist selection ─────────────────
     play_match = re.match(r"^play\s+(.+)$", text, re.IGNORECASE)
     if play_match:
-        target = play_match.group(1).strip()
+        target = play_match.group(1).strip().lower()
+        # Remove trailing "music" / "songs" / "playlist" to get the keyword
+        clean_target = re.sub(
+            r"\s*(music|songs?|playlist|tracks?)$", "", target
+        ).strip()
+        if clean_target in PLAYLIST_KEYWORD_MAP:
+            context = PLAYLIST_KEYWORD_MAP[clean_target]
+            return IntentResult(
+                intent_type="context_request",
+                action="select_playlist",
+                interpreted_context=context,
+                confidence=0.95,
+                user_feedback=_CONTEXT_FEEDBACK.get(
+                    context, f"Playing {context} music for you."
+                ),
+            )
+        # Generic "play <something>" — treat as direct play command
         return IntentResult(
             intent_type="direct_command",
             action="play",
             interpreted_context="none",
             confidence=0.95,
-            user_feedback=f"Playing {target}.",
+            user_feedback=f"Playing {play_match.group(1).strip()}.",
         )
+
+    # ── Context statements ("I am tired", "I feel sad", etc.) ───────
+    text_lower = text.lower().rstrip(".!?")
+    # Strip common prefixes to isolate the keyword(s)
+    for prefix in [
+        "i am ", "i'm ", "i feel ", "feeling ", "i am feeling ",
+        "i'm feeling ", "i need ", "i want ", "i need to ", "i want to ",
+    ]:
+        if text_lower.startswith(prefix):
+            remainder = text_lower[len(prefix):].strip()
+            if remainder in CONTEXT_STATEMENT_MAP:
+                context = CONTEXT_STATEMENT_MAP[remainder]
+                return IntentResult(
+                    intent_type="context_request",
+                    action="select_playlist",
+                    interpreted_context=context,
+                    confidence=0.90,
+                    user_feedback=_CONTEXT_FEEDBACK.get(
+                        context, f"Playing {context} music for you."
+                    ),
+                )
+
+    # ── Off-topic detection ─────────────────────────────────────────
+    for pattern in OFF_TOPIC_PATTERNS:
+        if pattern.match(text):
+            return IntentResult(
+                intent_type="off_topic",
+                action="reject",
+                interpreted_context="none",
+                confidence=0.95,
+                user_feedback=(
+                    "I'm only specialized in music. "
+                    "You can say: play jazz, pause, or play something calm."
+                ),
+            )
 
     return None
 

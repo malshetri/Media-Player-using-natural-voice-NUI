@@ -101,16 +101,21 @@ class TestRuleBasedClassifier:
         assert result.intent_type == "direct_command"
         assert result.action == "play"
 
-    # ── Context requests should fall through to AI ──────────────────
-    def test_context_falls_through(self):
-        """Context requests like 'I am tired' should NOT match rules."""
+    # ── Context requests now handled by rules ──────────────────────
+    def test_context_handled_by_rules(self):
+        """Context requests like 'I am tired' should match rules directly."""
         result = try_rule_based("I am tired")
-        assert result is None  # Should go to AI
+        assert result is not None
+        assert result.intent_type == "context_request"
+        assert result.action == "select_playlist"
+        assert result.interpreted_context == "calm"
 
-    def test_off_topic_falls_through(self):
-        """Off-topic like 'what is the weather' should NOT match rules."""
+    def test_off_topic_handled_by_rules(self):
+        """Off-topic like 'what is the weather' should be caught by rules."""
         result = try_rule_based("What is the weather?")
-        assert result is None  # Should go to AI
+        assert result is not None
+        assert result.intent_type == "off_topic"
+        assert result.action == "reject"
 
     # ── Case insensitivity ──────────────────────────────────────────
     def test_case_insensitive(self):
@@ -181,3 +186,67 @@ class TestIntentResultSchema:
                 confidence=0.9,
                 user_feedback="test",
             )
+
+
+from unittest.mock import patch
+
+class TestAIClassifier:
+    """Test the AI-based fallback classifier with mocked OpenAI."""
+
+    @pytest.fixture
+    def mock_settings(self):
+        from echo_sync.config.settings import Settings
+        settings = Settings()
+        settings.openai_api_key = "test_key"
+        settings.ai_model = "test-model"
+        return settings
+
+    @patch("echo_sync.ai.intent_classifier.OpenAI")
+    def test_ai_fallback_stop_music(self, mock_openai_cls, mock_settings):
+        mock_openai = mock_openai_cls.return_value
+        # Setup mock JSON response
+        mock_response = mock_openai.chat.completions.create.return_value
+        mock_message = mock_response.choices[0].message
+        mock_message.content = '{"intent_type": "direct_command", "action": "stop", "interpreted_context": "calm", "confidence": 0.95, "user_feedback": "Stopping the music."}'
+
+        from echo_sync.ai.intent_classifier import IntentClassifier
+        classifier = IntentClassifier(mock_settings)
+        
+        # Act
+        result = classifier.classify("I want to sleep, stop the music")
+        
+        # Assert
+        assert result.intent_type == "direct_command"
+        assert result.action == "stop"
+        assert result.interpreted_context == "calm"
+        assert result.confidence == 0.95
+
+    @patch("echo_sync.ai.intent_classifier.OpenAI")
+    def test_ai_fallback_volume_down(self, mock_openai_cls, mock_settings):
+        mock_openai = mock_openai_cls.return_value
+        mock_response = mock_openai.chat.completions.create.return_value
+        mock_message = mock_response.choices[0].message
+        mock_message.content = '{"intent_type": "direct_command", "action": "volume_down", "interpreted_context": "none", "confidence": 0.9, "user_feedback": "Turning it down."}'
+
+        from echo_sync.ai.intent_classifier import IntentClassifier
+        classifier = IntentClassifier(mock_settings)
+        
+        result = classifier.classify("This song is too loud")
+        
+        assert result.intent_type == "direct_command"
+        assert result.action == "volume_down"
+
+    @patch("echo_sync.ai.intent_classifier.OpenAI")
+    def test_ai_fallback_next_song(self, mock_openai_cls, mock_settings):
+        mock_openai = mock_openai_cls.return_value
+        mock_response = mock_openai.chat.completions.create.return_value
+        mock_message = mock_response.choices[0].message
+        mock_message.content = '{"intent_type": "direct_command", "action": "next", "interpreted_context": "none", "confidence": 0.9, "user_feedback": "Skipping song."}'
+
+        from echo_sync.ai.intent_classifier import IntentClassifier
+        classifier = IntentClassifier(mock_settings)
+        
+        result = classifier.classify("This song is annoying")
+        
+        assert result.intent_type == "direct_command"
+        assert result.action == "next"
